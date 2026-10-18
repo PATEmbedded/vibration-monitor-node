@@ -136,7 +136,7 @@ def main():
         "numpy": np.__version__,
     }
     MODEL_JSON.parent.mkdir(exist_ok=True)
-    MODEL_JSON.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    MODEL_JSON.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8", newline="\n")
     print(f"held-out accuracy: float {float_acc:.4f}, int8 {int8_acc:.4f}; wrote {MODEL_JSON}")
 
 
