@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: Host tests (${{ matrix.compiler }}, sanitizers)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Python packages
+        run: pip install -r tools/requirements.txt
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }} -DVMN_SANITIZE=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: C code against the Python reference
+        env:
+          VMN_CLI: build/vmn_cli
+        run: python -m pytest test/python -q
+      - name: Model header matches model.json
+        run: python tools/export_header.py --check
+      - name: Model accuracy on fresh synthetic data
+        if: matrix.compiler == 'gcc'
+        run: python tools/evaluate.py --min-accuracy 0.95 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  fuzz:
+    name: Fuzz the Modbus server (libFuzzer)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_C_COMPILER=clang -DVMN_FUZZ=ON -DVMN_BUILD_TESTS=OFF
+          cmake --build build --target fuzz_modbus --parallel
+      - name: Fuzz for 2 minutes
+        run: |
+          mkdir -p corpus
+          ./build/fuzz_modbus corpus -max_total_time=120 -print_final_stats=1
+
+  static-analysis:
+    name: Static analysis (cppcheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cppcheck
+      - name: cppcheck
+        run: >
+          cppcheck --std=c11 --enable=warning,style,performance,portability
+          --error-exitcode=1 --inline-suppr --suppress=missingIncludeSystem
+          -I core/include -I app/include -I model
+          core app tools/cli fuzz
+
+  firmware:
+    name: Firmware (STM32F407, arm-none-eabi-gcc)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the Arm toolchain
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build
+        run: |
+          cmake -S firmware -B build-fw
+          cmake --build build-fw --parallel
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware
+          path: |
+            build-fw/vmn-node.elf
+            build-fw/vmn-node.bin
+            build-fw/vmn-node.map
+
+  renode:
+    name: System tests on an emulated STM32F407 (Renode)
+    needs: firmware
+    runs-on: ubuntu-24.04
+    env:
+      RENODE_VERSION: 1.17.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: firmware
+          path: build-fw
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Renode
+        run: |
+          curl -sSfL -o renode.tar.gz \
+            "https://github.com/renode/renode/releases/download/v${RENODE_VERSION}/renode-${RENODE_VERSION}.linux-portable.tar.gz"
+          mkdir renode && tar xzf renode.tar.gz -C renode --strip-components=1
+          ./renode/renode --version
+      - name: Install pytest
+        run: pip install pytest
+      - name: System tests
+        env:
+          RENODE: ${{ github.workspace }}/renode/renode
+          VMN_ELF: build-fw/vmn-node.elf
+        run: python -m pytest test/renode -v
+      - name: Keep the emulator log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: renode-log
+          path: build-fw/renode.log

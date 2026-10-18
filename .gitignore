@@ -1,0 +1,8 @@
+build*/
+corpus/
+crash-*
+leak-*
+timeout-*
+__pycache__/
+.pytest_cache/
+*.pyc
