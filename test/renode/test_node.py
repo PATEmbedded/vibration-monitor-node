@@ -128,7 +128,8 @@ class Client:
 @pytest.fixture(scope="module")
 def node():
     if not ELF.exists():
-        pytest.skip(f"{ELF} not built")
+        # In CI a missing firmware must fail the job, not skip it into a green result.
+        (pytest.fail if os.environ.get("CI") else pytest.skip)(f"{ELF} not built")
     LOG.parent.mkdir(parents=True, exist_ok=True)
     script = (ROOT / "test" / "renode" / "vmn-node.resc").as_posix()
     commands = f"$elf=@{ELF.as_posix()}; $port={PORT}; include @{script}; start"

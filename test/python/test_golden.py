@@ -31,7 +31,8 @@ def find_cli() -> str:
     found = shutil.which("vmn_cli")
     if found:
         return found
-    pytest.skip("vmn_cli not built; set VMN_CLI")
+    # In CI a missing tool must fail the job, not skip it into a green result.
+    (pytest.fail if os.environ.get("CI") else pytest.skip)("vmn_cli not built; set VMN_CLI")
 
 
 @pytest.fixture(scope="module")
