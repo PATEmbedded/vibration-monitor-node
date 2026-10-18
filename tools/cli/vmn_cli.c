@@ -53,7 +53,7 @@ static int cmd_logits(void)
     char line[512];
     while (fgets(line, sizeof line, stdin) != NULL) {
         int8_t q[VMN_FEATURE_COUNT];
-        char *p = line;
+        const char *p = line;
         for (int i = 0; i < VMN_FEATURE_COUNT; ++i) {
             char *end = NULL;
             const long v = strtol(p, &end, 10);
