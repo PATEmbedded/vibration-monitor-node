@@ -1,0 +1,21 @@
+:name: vibration-monitor-node
+:description: STM32F4 Discovery running the node firmware; USART2 (Modbus RTU) is exposed on a TCP port.
+
+# Set $elf and $port before including this script, for example:
+#   renode --disable-gui -P -1 -e "$elf=@build-fw/vmn-node.elf; $port=4321; include @test/renode/vmn-node.resc; start"
+
+$elf?=@build-fw/vmn-node.elf
+$port?=4321
+
+using sysbus
+mach create "vmn-node"
+machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
+
+emulation CreateServerSocketTerminal $port "modbus" false
+connector Connect sysbus.usart2 modbus
+
+macro reset
+"""
+    sysbus LoadELF $elf
+"""
+runMacro $reset
